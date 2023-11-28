@@ -54,7 +54,12 @@ set(CMAKE_SYSTEM_PROCESSOR "armv7-m" PARENT_SCOPE)
 include_directories(${INCLUDE_DIRS})
 
 # create our target
-add_library(codal-microbit-v2 ${SOURCE_FILES})
+add_library(codal-microbit-v2 ${SOURCE_FILES}
+        source/MicroBitMeshRadio.cpp
+        source/MicroBitMeshRadioEvent.cpp
+        source/MicroBitMeshRadioDatagram.cpp
+        inc/MicroBitMeshRadioDatagram.h
+        inc/MicroBitMeshRadioEvent.h)
 
 target_link_libraries(
     codal-microbit-v2

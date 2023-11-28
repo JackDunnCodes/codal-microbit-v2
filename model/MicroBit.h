@@ -54,6 +54,7 @@ DEALINGS IN THE SOFTWARE.
 #include "LSM303Accelerometer.h"
 #include "LSM303Magnetometer.h"
 #include "MicroBitRadio.h"
+#include "MicroBitMeshRadio.h"
 #include "MicroBitThermometer.h"
 #include "MicroBitCompassCalibrator.h"
 #include "MicroBitDevice.h"
@@ -157,6 +158,7 @@ namespace codal
             MultiButton                 buttonAB;
             TouchButton                 logo;
             MicroBitRadio               radio;
+            MicroBitMeshRadio           meshRadio;
             MicroBitThermometer         thermometer;
             Accelerometer&              accelerometer;
             Compass&                    compass;

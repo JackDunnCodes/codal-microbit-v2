@@ -85,6 +85,7 @@ MicroBit::MicroBit() :
     buttonAB(DEVICE_ID_BUTTON_A, DEVICE_ID_BUTTON_B, DEVICE_ID_BUTTON_AB),
     logo(io.logo, touchSensor, CAPTOUCH_DEFAULT_CALIBRATION),
     radio(),
+    meshRadio(),
     thermometer(),
     accelerometer(MicroBitAccelerometer::autoDetect(_i2c)),
     compass(MicroBitCompass::autoDetect(_i2c)),
