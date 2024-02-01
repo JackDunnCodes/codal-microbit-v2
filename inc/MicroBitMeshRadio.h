@@ -29,6 +29,7 @@ DEALINGS IN THE SOFTWARE.
 namespace codal
 {
     class MicroBitMeshRadio;
+    struct SequencedFrameBuffer;
 }
 
 #include "CodalConfig.h"
@@ -93,6 +94,20 @@ namespace codal
 namespace codal
 {
 
+
+    struct SequencedFrameBuffer
+    {
+        uint8_t         length;                             // The length of the remaining bytes in the packet. includes protocol/version/group fields, excluding the length field itself.
+        uint8_t         version;                            // Protocol version code.
+        uint8_t         group;                              // ID of the group to which this packet belongs.
+        uint8_t         protocol;                           // Inner protocol number c.f. those issued by IANA for IP protocols
+        uint8_t         seqNo;
+
+        uint8_t         payload[MICROBIT_RADIO_MAX_PACKET_SIZE];    // User / higher layer protocol data
+        SequencedFrameBuffer     *next;                              // Linkage, to allow this and other protocols to queue packets pending processing.
+        int             rssi;                               // Received signal strength of this frame.
+    };
+
     class MicroBitMeshRadio : CodalComponent
     {
         uint8_t                 band;       // The radio transmission and reception frequency band.
@@ -100,9 +115,10 @@ namespace codal
         uint8_t                 group;      // The radio group to which this micro:bit belongs.
         uint8_t                 queueDepth; // The number of packets in the receiver queue.
         int                     rssi;
-        FrameBuffer             *rxQueue;   // A linear list of incoming packets, queued awaiting processing.
-        FrameBuffer             *rxBuf;     // A pointer to the buffer being actively used by the RADIO hardware.
+        SequencedFrameBuffer             *rxQueue;   // A linear list of incoming packets, queued awaiting processing.
+        SequencedFrameBuffer             *rxBuf;     // A pointer to the buffer being actively used by the RADIO hardware.
         bool blockTransmit;
+        int                     currentSeqNo;
 
         public:
         MicroBitMeshRadioDatagram   datagram;   // A simple datagram service.
@@ -144,7 +160,7 @@ namespace codal
          *
          * @return a pointer to the current receive buffer.
          */
-        FrameBuffer * getRxBuf();
+        SequencedFrameBuffer * getRxBuf();
 
         /**
          * Attempt to queue a buffer received by the radio hardware, if sufficient space is available.
@@ -220,7 +236,7 @@ namespace codal
          * @note Once recv() has been called, it is the callers responsibility to
          *       delete the buffer when appropriate.
          */
-        FrameBuffer* recv();
+        SequencedFrameBuffer* recv();
 
         /**
          * Transmits the given buffer onto the broadcast radio.
@@ -230,7 +246,9 @@ namespace codal
          *
          * @return MICROBIT_OK on success, or MICROBIT_NOT_SUPPORTED if the BLE stack is running.
          */
-        int send(FrameBuffer *buffer);
+        int send(SequencedFrameBuffer *buffer);
+
+        bool compareSeqNo(int neqSeq);
 
         /**
           * Puts the component in (or out of) sleep (low power) mode.

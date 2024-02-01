@@ -101,7 +101,7 @@ namespace codal
 
         uint8_t         payload[MICROBIT_RADIO_MAX_PACKET_SIZE];    // User / higher layer protocol data
         FrameBuffer     *next;                              // Linkage, to allow this and other protocols to queue packets pending processing.
-        int             rssi;                               // Received signal strength of this frame.
+        uint8_t         rssi;                               // Received signal strength of this frame.
     };
 
 

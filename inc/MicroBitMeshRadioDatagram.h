@@ -45,8 +45,8 @@ namespace codal
      */
     class MicroBitMeshRadioDatagram
     {
-        MicroBitMeshRadio   &radio;     // The underlying radio module used to send and receive data.
-        FrameBuffer     *rxQueue;   // A linear list of incoming packets, queued awaiting processing.
+        MicroBitMeshRadio        &radio;     // The underlying radio module used to send and receive data.
+        SequencedFrameBuffer     *rxQueue;   // A linear list of incoming packets, queued awaiting processing.
 
         public:
 

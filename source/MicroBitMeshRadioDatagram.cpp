@@ -70,7 +70,7 @@ int MicroBitMeshRadioDatagram::recv(uint8_t *buf, int len)
         return DEVICE_INVALID_PARAMETER;
 
     // Take the first buffer from the queue.
-    FrameBuffer *p = rxQueue;
+    SequencedFrameBuffer *p = rxQueue;
     rxQueue = rxQueue->next;
 
     int l = min(len, p->length - (MICROBIT_MESH_RADIO_HEADER_SIZE - 1));
@@ -95,7 +95,7 @@ PacketBuffer MicroBitMeshRadioDatagram::recv()
     if (rxQueue == NULL)
         return PacketBuffer::EmptyPacket;
 
-    FrameBuffer *p = rxQueue;
+    SequencedFrameBuffer *p = rxQueue;
     rxQueue = rxQueue->next;
 
     PacketBuffer packet(p->payload, p->length - (MICROBIT_MESH_RADIO_HEADER_SIZE - 1), p->rssi);
@@ -122,7 +122,7 @@ int MicroBitMeshRadioDatagram::send(uint8_t *buffer, int len)
     if (buffer == NULL || len < 0 || len > MICROBIT_RADIO_MAX_PACKET_SIZE + MICROBIT_MESH_RADIO_HEADER_SIZE - 1)
         return DEVICE_INVALID_PARAMETER;
 
-    FrameBuffer buf;
+    SequencedFrameBuffer buf;
 
     buf.length = len + MICROBIT_MESH_RADIO_HEADER_SIZE - 1;
     buf.version = 1;
@@ -172,7 +172,7 @@ int MicroBitMeshRadioDatagram::send(ManagedString data)
   */
 void MicroBitMeshRadioDatagram::packetReceived()
 {
-    FrameBuffer *packet = radio.recv();
+    SequencedFrameBuffer *packet = radio.recv();
     int queueDepth = 0;
 
     // We add to the tail of the queue to preserve causal ordering.
@@ -184,7 +184,7 @@ void MicroBitMeshRadioDatagram::packetReceived()
     }
     else
     {
-        FrameBuffer *p = rxQueue;
+        SequencedFrameBuffer *p = rxQueue;
         while (p->next != NULL)
         {
             p = p->next;

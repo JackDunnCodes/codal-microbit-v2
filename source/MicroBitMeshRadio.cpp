@@ -30,6 +30,8 @@ DEALINGS IN THE SOFTWARE.
 #include "CodalFiber.h"
 #include "nrf.h"
 
+#define DEBUG false
+
 using namespace codal;
 
 const uint8_t MICROBIT_RADIO_POWER_LEVEL[] = {0xD8, 0xEC, 0xF0, 0xF4, 0xF8, 0xFC, 0x00, 0x04};
@@ -58,43 +60,64 @@ const uint8_t MICROBIT_RADIO_POWER_LEVEL[] = {0xD8, 0xEC, 0xF0, 0xF4, 0xF8, 0xFC
   */
 
 MicroBitMeshRadio* MicroBitMeshRadio::instance = NULL;
-
+bool blockRx = false;
 extern "C" void mesh_RADIO_IRQHandler(void)
 {
-    // immediately start timer for maximum determinism
-    NRF_TIMER1->TASKS_START=1;
+
     if(NRF_RADIO->EVENTS_END)
     {
+
+        // immediately start timer for maximum determinism
+        NRF_TIMER0->TASKS_CLEAR = 1;
+        NRF_TIMER0->TASKS_START=1;
         NRF_RADIO->EVENTS_END = 0;
         if(NRF_RADIO->CRCSTATUS == 1)
         {
-            NRF_RADIO->TASKS_DISABLE = 1;
-            MicroBitMeshRadio::instance->setBlockTransmit(true);
-            int sample = (int)NRF_RADIO->RSSISAMPLE;
+            if(MicroBitMeshRadio::instance->compareSeqNo(MicroBitMeshRadio::instance->getRxBuf()->seqNo)){
+#if DEBUG
+                NRF_GPIO->OUT = 1 << 2;
+#endif
+                NRF_RADIO->TASKS_DISABLE = 1;
+                MicroBitMeshRadio::instance->setBlockTransmit(true);
+                int sample = (int)NRF_RADIO->RSSISAMPLE;
 
-            // Associate this packet's rssi value with the data just
-            // transferred by DMA receive
-            MicroBitMeshRadio::instance->setRSSI(-sample);
+                // Associate this packet's rssi value with the data just
+                // transferred by DMA receive
+                MicroBitMeshRadio::instance->setRSSI(-sample);
+            } else {
+                // cancel timer
+                NRF_TIMER0->TASKS_STOP = 1;
+                NRF_TIMER0->TASKS_CLEAR = 1;
+                NRF_RADIO->TASKS_DISABLE = 1;
+            }
+
         }
         else
         {
             // cancel timer
-            NRF_TIMER1->TASKS_STOP = 1;
-            NRF_TIMER1->TASKS_CLEAR = 1;
+            NRF_TIMER0->TASKS_STOP = 1;
+            NRF_TIMER0->TASKS_CLEAR = 1;
             NRF_RADIO->TASKS_DISABLE = 1;
             MicroBitMeshRadio::instance->setRSSI(0);
+            // Now move on to the next buffer, if possible.
+            // The queued packet will get the rssi value set above.
+            MicroBitMeshRadio::instance->queueRxBuf();
+
+            // Set the new buffer for DMA
+            NRF_RADIO->PACKETPTR = (uint32_t) MicroBitMeshRadio::instance->getRxBuf();
+            MicroBitMeshRadio::instance->setBlockTransmit(false);
         }
 
         // Start listening and wait for the END event
         NRF_RADIO->TASKS_START = 1;
     } else {
         // cancel timer
-        NRF_TIMER1->TASKS_STOP = 1;
-        NRF_TIMER1->TASKS_CLEAR = 1;
+//        NRF_TIMER0->TASKS_STOP = 1;
+//        NRF_TIMER0->TASKS_CLEAR = 1;
     }
     if(NRF_RADIO->EVENTS_TXREADY)
     {
-        NRF_RADIO->EVENTS_END = 0;
+        NRF_RADIO->EVENTS_TXREADY = 0;
 
         NRF_RADIO->SHORTS &= ~RADIO_SHORTS_DISABLED_TXEN_Msk;
         NRF_RADIO->SHORTS |=  RADIO_SHORTS_DISABLED_RXEN_Msk;
@@ -112,13 +135,17 @@ extern "C" void mesh_RADIO_IRQHandler(void)
 
 
 }
-extern "C" void mesh_TIMER1_IRQHandler(void)
+extern "C" void mesh_TIMER0_IRQHandler(void)
 {
-    if(NRF_TIMER1->EVENTS_COMPARE[0] && NRF_RADIO->EVENTS_TXREADY) {
+#if DEBUG
+    NRF_GPIO->OUT = 0 << 2;
+#endif
+    if(NRF_TIMER0->EVENTS_COMPARE[0]) {
         NRF_RADIO->TASKS_START = 1;
-        NRF_TIMER1->EVENTS_COMPARE[0] = 0;
-        NRF_TIMER1->TASKS_STOP = 1;
-        NRF_TIMER1->TASKS_CLEAR = 1;
+        NRF_TIMER0->EVENTS_COMPARE[0] = 0;
+//        NRF_TIMER0->TASKS_STOP = 1;
+//        NRF_TIMER0->TASKS_CLEAR = 1;
+
         // Now move on to the next buffer, if possible.
         // The queued packet will get the rssi value set above.
         MicroBitMeshRadio::instance->queueRxBuf();
@@ -141,14 +168,15 @@ MicroBitMeshRadio::MicroBitMeshRadio(uint16_t id) : datagram(*this), event (*thi
 {
     this->id = id;
     this->status = 0;
-    this->band  = MICROBIT_RADIO_DEFAULT_FREQUENCY;
-    this->power = MICROBIT_RADIO_DEFAULT_TX_POWER;
-    this->group = MICROBIT_RADIO_DEFAULT_GROUP;
+    this->band  = MICROBIT_MESH_RADIO_DEFAULT_FREQUENCY;
+    this->power = MICROBIT_MESH_RADIO_DEFAULT_TX_POWER;
+    this->group = MICROBIT_MESH_RADIO_DEFAULT_GROUP;
     this->queueDepth = 0;
     this->rssi = 0;
     this->rxQueue = NULL;
     this->rxBuf = NULL;
     this->blockTransmit = false;
+    this->currentSeqNo = 0;
 
     instance = this;
 }
@@ -223,7 +251,7 @@ int MicroBitMeshRadio::setFrequencyBand(int band)
   *
   * @return a pointer to the current receive buffer.
   */
-FrameBuffer* MicroBitMeshRadio::getRxBuf()
+SequencedFrameBuffer* MicroBitMeshRadio::getRxBuf()
 {
     return rxBuf;
 }
@@ -246,7 +274,7 @@ int MicroBitMeshRadio::queueRxBuf()
     rxBuf->rssi = getRSSI();
 
     // Ensure that a replacement buffer is available before queuing.
-    FrameBuffer *newRxBuf = new FrameBuffer();
+    SequencedFrameBuffer *newRxBuf = new SequencedFrameBuffer();
 
     if (newRxBuf == NULL)
         return DEVICE_NO_RESOURCES;
@@ -260,7 +288,7 @@ int MicroBitMeshRadio::queueRxBuf()
     }
     else
     {
-        FrameBuffer *p = rxQueue;
+        SequencedFrameBuffer *p = rxQueue;
         while (p->next != NULL)
             p = p->next;
 
@@ -327,7 +355,7 @@ int MicroBitMeshRadio::enable()
 
     // If this is the first time we've been enable, allocate out receive buffers.
     if (rxBuf == NULL)
-        rxBuf = new FrameBuffer();
+        rxBuf = new SequencedFrameBuffer();
 
     if (rxBuf == NULL)
         return DEVICE_NO_RESOURCES;
@@ -383,19 +411,23 @@ int MicroBitMeshRadio::enable()
     // Set up the RADIO module to read and write from our internal buffer.
     NRF_RADIO->PACKETPTR = (uint32_t)rxBuf;
 
-    NRF_TIMER1->PRESCALER = 4;
-    NRF_TIMER1->CC[0] = 23; // 200 microseconds
-    NRF_TIMER1->INTENSET=1 << 16;
-    NRF_TIMER1->TASKS_STOP=1;
-    NRF_TIMER1->TASKS_CLEAR=1;
+    NRF_TIMER0->PRESCALER = 5;
+    NRF_TIMER0->CC[0] = 100; // 200 microseconds
+    NRF_TIMER0->SHORTS |= TIMER_SHORTS_COMPARE0_CLEAR_Msk
+                              | TIMER_SHORTS_COMPARE0_STOP_Msk;
+    NRF_TIMER0->INTENSET=1 << 16;
+    NRF_TIMER0->TASKS_STOP=1;
+    NRF_TIMER0->TASKS_CLEAR=1;
 
     // Configure the hardware to issue an interrupt whenever a task is complete (e.g. send/receive).
 //    NRF_RADIO->INTENSET = 0x00000008;
+    NVIC_SetPriority(RADIO_IRQn, 2);
     NVIC_SetVector(RADIO_IRQn, (uint32_t) mesh_RADIO_IRQHandler);
+    NVIC_SetPriority(TIMER0_IRQn, 2);
+    NVIC_SetVector(TIMER0_IRQn, (uint32_t) mesh_TIMER0_IRQHandler);
 
-    NVIC_SetVector(TIMER1_IRQn, (uint32_t) mesh_TIMER1_IRQHandler);
-
-    NRF_RADIO->SHORTS |= RADIO_SHORTS_ADDRESS_RSSISTART_Msk;
+    NRF_RADIO->SHORTS |= RADIO_SHORTS_ADDRESS_RSSISTART_Msk
+                             | RADIO_SHORTS_DISABLED_TXEN_Msk;
     NRF_RADIO->INTENSET |= RADIO_INTENSET_RXREADY_Msk
                              | RADIO_INTENSET_TXREADY_Msk
                              | RADIO_INTENSET_END_Msk;
@@ -408,8 +440,8 @@ int MicroBitMeshRadio::enable()
     NRF_RADIO->EVENTS_END = 0;
     NVIC_ClearPendingIRQ(RADIO_IRQn);
     NVIC_EnableIRQ(RADIO_IRQn);
-    NVIC_ClearPendingIRQ(TIMER1_IRQn);
-    NVIC_EnableIRQ(TIMER1_IRQn);
+    NVIC_ClearPendingIRQ(TIMER0_IRQn);
+    NVIC_EnableIRQ(TIMER0_IRQn);
     NRF_RADIO->TASKS_START = 1;
 
     // register ourselves for a callback event, in order to empty the receive queue.
@@ -417,6 +449,11 @@ int MicroBitMeshRadio::enable()
 
     // Done. Record that our RADIO is configured.
     status |= MICROBIT_RADIO_STATUS_INITIALISED;
+
+#if DEBUG
+    NRF_GPIO->DIR = 1 << 2;
+    NRF_GPIO->OUT = 0;
+#endif
 
     return DEVICE_OK;
 }
@@ -481,7 +518,7 @@ void MicroBitMeshRadio::idleCallback()
     // Walk the list of packets and process each one.
     while(rxQueue)
     {
-        FrameBuffer *p = rxQueue;
+        SequencedFrameBuffer *p = rxQueue;
 
         switch (p->protocol)
         {
@@ -527,9 +564,9 @@ int MicroBitMeshRadio::dataReady()
   * @note Once recv() has been called, it is the callers responsibility to
   *       delete the buffer when appropriate.
   */
-FrameBuffer* MicroBitMeshRadio::recv()
+SequencedFrameBuffer* MicroBitMeshRadio::recv()
 {
-    FrameBuffer *p = rxQueue;
+    SequencedFrameBuffer *p = rxQueue;
 
     if (p)
     {
@@ -554,7 +591,7 @@ FrameBuffer* MicroBitMeshRadio::recv()
   *
   * @return DEVICE_OK on success, or DEVICE_NOT_SUPPORTED if the BLE stack is running.
   */
-int MicroBitMeshRadio::send(FrameBuffer *buffer)
+int MicroBitMeshRadio::send(SequencedFrameBuffer *buffer)
 {
     if (ble_running())
         return DEVICE_NOT_SUPPORTED;
@@ -569,6 +606,8 @@ int MicroBitMeshRadio::send(FrameBuffer *buffer)
     while(this->blockTransmit);
     // Now disable the Radio interrupt. We want to wait until the trasmission completes.
     NVIC_DisableIRQ(RADIO_IRQn);
+    this->currentSeqNo++;
+    buffer->seqNo = this->currentSeqNo;
 
     // Turn off the transceiver.
     NRF_RADIO->EVENTS_DISABLED = 0;
@@ -612,6 +651,14 @@ int MicroBitMeshRadio::send(FrameBuffer *buffer)
 }
 void MicroBitMeshRadio::setBlockTransmit(bool transmit) {
     this->blockTransmit = transmit;
+}
+
+bool MicroBitMeshRadio::compareSeqNo(int newSeq) {
+    bool isGood = MicroBitMeshRadio::instance->getRxBuf()->seqNo < newSeq;
+    if(isGood) {
+        this->currentSeqNo = newSeq;
+    }
+    return isGood;
 }
 
 /**

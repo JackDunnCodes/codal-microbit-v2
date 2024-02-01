@@ -144,7 +144,7 @@ int MicroBitMeshRadioEvent::ignore(uint16_t id, uint16_t value, EventModel &even
   */
 void MicroBitMeshRadioEvent::packetReceived()
 {
-    FrameBuffer *p = radio.recv();
+    SequencedFrameBuffer *p = radio.recv();
     Event *e = (Event *) p->payload;
 
     suppressForwarding = true;
@@ -164,7 +164,7 @@ void MicroBitMeshRadioEvent::eventReceived(Event e)
     if(suppressForwarding)
         return;
 
-    FrameBuffer buf;
+    SequencedFrameBuffer buf;
 
     buf.length = sizeof(Event) + MICROBIT_MESH_RADIO_HEADER_SIZE - 1;
     buf.version = 1;
